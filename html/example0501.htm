@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html>
+<script src="http://jquery.keicode.com/jquery/jquery-ui/external/jquery/jquery.js"></script>
+<script src="http://jquery.keicode.com/jquery/jquery-ui/jquery-ui.min.js"></script>
+<script type="text/javascript">
+<!-- 
+// AudioContextはどこからでも使いたいからグローバルにする。
+var audioCtx=new(window.AudioContext || window.webkitAudioContext)();
+function mybeepOnce(pd){
+ var oscillator=audioCtx.createOscillator();
+ if(audioCtx.state=="suspended") audioCtx.resume();
+ oscillator.connect(audioCtx.destination);
+ oscillator.frequency.value = 1000; // 値はHz(ヘルツ)
+ //oscillator.frequency.value = 15000; // 値はHz(ヘルツ)人には聞こえない
+ oscillator.start();
+ oscillator.stop(audioCtx.currentTime + pd);
+}
+//グローバル変数。時分が同じとき、一度しか反応しないために。
+var onEdge = 0;
+var offEdge = 0;
+var nowAC = 0;  //初期値OFF
+//DEBUG var nowAC = 1;  //初期値ON
+var ondoPre = 99.0; //前回温度
+
+function calcAC() {
+
+  if (document.F1.JNOW.value == '') return("0"); //現在時刻空白はNOP
+  
+  if (document.F1.JNOW.value == document.F1.JONN.value) {
+    if ((nowAC == 0) && (onEdge == 0)) {
+      onEdge = 1;  // 同じ時刻で二回目以降は１となる
+      nowAC = 1;
+      return("3"); //ON
+    }
+  } else {
+    onEdge = 0;  //時刻が違えば０に戻る
+  }
+  if (document.F1.JNOW.value == document.F1.JOFF.value) {
+    if ((nowAC == 1) && (offEdge == 0)) {
+      offEdge = 1;  // 同じ時刻で二回目以降は１となる
+      nowAC = 0;
+      return("6"); //OFF
+    }
+  } else {
+    offEdge = 0;  //時刻が違えば０に戻る
+  }
+  
+  //PID制御もどきによる電源ON=9/OFF=10
+  //前回温度の設定
+  var wPre = ondoPre;
+  //
+  if (document.F1.TSET.value == '') return("0"); //設定温度空白はNOP
+  if (document.F1.TNOW.value == '') return("0"); //現在温度空白はNOP
+  var wSet = parseInt(document.F1.TSET.value, 10) //文字は無視、小数点以下は切り捨て
+  var wNow = parseFloat(document.F1.TNOW.value, 10) //文字は無視、小数点以下は切り捨て
+  ondoPre = wNow; //次回のため
+  var wSetON = wSet + 0.5 //判断基準
+  var wSetOFF = wSet - 0.5 //判断基準
+  //現在ON
+  if ((nowAC == 1) && (wPre > wSetOFF) && (wNow <= wSetOFF)) {
+    nowAC = 0;
+    return ("10") //温調でOFF
+  }
+  //現在OFF
+  if ((nowAC == 0) && (wPre < wSetON) && (wNow >= wSetON)) {
+    nowAC = 1;
+    return ("9") //温調でON
+  }
+  //
+  return("0");
+}
+//内部状態を画面に表示する。calcAC()の結果を受けるので直後に呼ばれる
+function dispAC() {
+  if (nowAC == 1 ) document.F1.TEST3.value="  ON";      //内部AC状態
+  else             document.F1.TEST3.value=" OFF";
+  if (ondoPre > 90.0)  document.F1.TEST2.value = "";      //初期値
+  else {
+    var ws = String(ondoPre);   //数値を文字に変換。小数点以下も変換してくれる
+    document.F1.TEST2.value = ws;
+  }
+}
+//コマンド判定ボタン。フォーカス確認のため正常時は音を出す
+function t3220() {
+ if (document.getElementById("IM1").value=='Start'){
+  document.F1.IM1.value='';
+  document.F1.IM1.focus();
+  mybeepOnce(0.2); //Tone check
+ } else if (document.getElementById("IM1").value=='Data'){
+   var dd = new Date();
+  //var YYYY = dd.getFullYear();
+  //var MM = dd.getMonth()+1;
+  //var DD = dd.getDate();
+  var hh = dd.getHours();
+  var mm = dd.getMinutes();
+  if (hh < 10) {
+	hh = "0" + hh;
+  }
+  if (mm < 10) {
+    mm = "0" + mm;
+  }
+  //var ss = dd.getSeconds();
+  //document.F1.TNOW.value=YYYY + "/" + MM + "/" + DD + " " + hh + ":" + mm + ":" + ss;
+  document.F1.JNOW.value= hh + ":" + mm
+  document.F1.IM1.value='';
+  document.F1.TNOW.value='';
+  document.F1.TNOW.focus();
+  mybeepOnce(0.2); //Tone check
+ } else if (document.getElementById("IM1").value=='Inqu'){
+  //制御値をセットする 1,2,3,4
+  document.F1.KUDARI.value=calcAC();
+  dispAC();
+  document.F1.IM1.value='';
+  document.F1.IM2.value='';
+  document.F1.IM2.focus();
+  mybeepOnce(0.2); //Tone check
+ } else {
+  document.F1.IM1.value='';
+  document.F1.IM1.focus();
+ }
+ return false;
+}
+//下り命令ボタン。ビットON/OFFを音で知らせる
+function t3227() {
+ //bitを指定して音をだす。ON/OFF
+ w_cmd=document.F1.KUDARI.value;
+ if ((document.getElementById("IM2").value>='1') && (document.getElementById("IM2").value<='8')) {
+  wv=document.F1.IM2.value;
+  wx=0;
+  if (wv==0) {document.all.commandx.innerHTML="err";
+  } else if (wv==1){wx=w_cmd & 0b00000001;
+  } else if (wv==2){wx=w_cmd & 0b00000010;
+  } else if (wv==3){wx=w_cmd & 0b00000100;
+  } else if (wv==4){wx=w_cmd & 0b00001000;
+  } else if (wv==5){wx=w_cmd & 0b00010000;
+  } else if (wv==6){wx=w_cmd & 0b00100000;
+  } else if (wv==7){wx=w_cmd & 0b01000000;
+  } else if (wv==8){wx=w_cmd & 0b10000000;
+  } else {document.all.commandx.innerHTML="other";
+  }
+  if (wx !=0){
+   mybeepOnce(0.05);
+  } else {
+   mybeepOnce(0.025);
+  }
+  document.F1.IM2.value='';
+  document.F1.IM2.focus();
+ } else {
+  document.F1.IM2.value='';
+  document.F1.IM1.value='';
+  document.F1.IM1.focus();
+ }
+ return false;
+}
+//実行ボタン。フォーカス確認のため正常時は音を出す
+function t3228() {
+ //DEBUG document.F1.IM1.value='Inqu';
+ document.F1.IM1.value='';
+ document.F1.IM1.focus();
+ mybeepOnce(0.2); //Tone check
+}
+//ON/OFF 切り替え。内部変数を設定するだけで、IR信号は出さない
+function t3229() {
+  if (nowAC == 1 ) nowAC = 0
+  else nowAC = 1 
+  //再表示
+  if (nowAC == 1 ) document.F1.TEST3.value="  ON";  //内部ACがON/OFFを表示
+  else             document.F1.TEST3.value=" OFF"; //内部ACがON/OFFを表示
+  document.F1.IM1.focus();
+}
+// -->
+</script>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<meta http-equiv="Content-Style-Type" content="text/css">
+<title>HID sample</title>
+<meta name="Generator" content="Cocoa HTML Writer">
+<meta name="CocoaVersion" content="1404.47">
+<style type="text/css">
+  body {background-color: #ffffdf}
+  input.systemSetting {background-color: #bbffff; border-style: solid; border-width: thin;}
+</style>
+</head><body>
+<p>HID example5 v1.0</p>
+<form method="POST" name="F1" action=#>
+現在時刻_ A/C ON__ A/C OFF<br>
+<input type="text" name="JNOW" id="JNOW" tabIndex="31" size=6 class="systemSetting">
+<input type="text" name="JONN" id="JONN" tabIndex="32" size=6>
+<input type="text" name="JOFF" id="JOFF" tabIndex="33" size=6><br>
+<br>設定温度_内部ON/OFF値<br>
+<input type="text" name="TSET" id="TSET" tabIndex="41" size=5>
+<input type="text"name="TEST3" id="TEST3" tabIndex="42" size=4  disabled value=" OFF">
+<input type="button"  tabIndex="43" value="ON/OFF切替" onclick="t3229()"> 実際のエアコンに合わせてください<br>
+<br>室温____前回の室温<br>
+<input type="text" name="TNOW" id="TNOW" tabIndex="52" size=5 class="systemSetting">
+<input type="text" name="TEST2" id="TEST2" tabIndex="51" size=5  disabled >
+<br>- - - - - - - - - - - - - - - - - - - - - - - -<br>
+コマンド<input type="text" name="IM1" id="IM1" inputmode="url" size=5 tabIndex="1" class="systemSetting">
+<input type="button"  tabIndex="2" value="コマンド判定" onclick="return t3220()">
+<input type="button"  tabIndex="61" value="実行" onclick="t3228()"><br>
+<input type="text" name="KUDARI" id="KUDARI" size=3 tabIndex="81" class="systemSetting">
+<input type="text" name="IM2" id="IM2" size=3 tabIndex="82" class="systemSetting">
+<input type="button"  tabIndex="83" value="下り命令" onclick="t3227()"><br>
+<script type="text/javascript">
+<!-- 
+//ユーザー設定フィールドのフォーカスが外れた時の処理
+var ctx1=document.getElementById("JONN");
+var ctx2=document.getElementById("JOFF");
+var ctx3=document.getElementById("TSET");
+ctx1.addEventListener('blur', function() { document.F1.IM1.focus(); }, false);
+ctx2.addEventListener('blur', function() { document.F1.IM1.focus(); }, false);
+ctx3.addEventListener('blur', function() { document.F1.IM1.focus(); }, false);
+// -->
+</script>
+</form></body></html>
